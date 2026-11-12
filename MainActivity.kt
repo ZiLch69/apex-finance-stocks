@@ -5,6 +5,7 @@ package com.example.cvetracker
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -16,9 +17,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -57,6 +59,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.work.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
@@ -118,17 +121,53 @@ data class NewsArticle(
     val publishedTime: Long
 )
 
-// --- DEFAULT MARKET PRESETS ---
+// --- EXPANDED 180+ COMPANY MARKET POOLS + INFINITE DISCOVERY KEYWORDS ---
 
 val DEFAULT_WATCHLIST = setOf(
-    "NVDA", "AAPL", "BTC-USD", "^NSEI", "RELIANCE.NS", "TSLA", "GC=F"
+    "NVDA", "AAPL", "^NSEI", "RELIANCE.NS", "TCS.NS", "BTC-USD", "TSLA", "GC=F"
 )
 
 val PRESET_CATEGORIES = mapOf(
-    "US Tech" to listOf("NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "AMD", "NFLX"),
-    "India (NSE)" to listOf("^NSEI", "^BSESN", "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS", "SBIN.NS", "TATAMOTORS.NS"),
-    "Crypto" to listOf("BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD", "DOGE-USD", "ADA-USD"),
-    "Global & Macro" to listOf("^GSPC", "^IXIC", "^DJI", "GC=F", "SI=F", "CL=F", "EURUSD=X", "INR=X")
+    "🇮🇳 India (NSE)" to listOf(
+        "^NSEI", "^BSESN", "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS",
+        "BHARTIARTL.NS", "SBIN.NS", "LICI.NS", "ITC.NS", "HINDUNILVR.NS", "LT.NS", "BAJFINANCE.NS",
+        "HCLTECH.NS", "MARUTI.NS", "SUNPHARMA.NS", "ADANIENT.NS", "KOTAKBANK.NS", "TITAN.NS",
+        "ONGC.NS", "TATAMOTORS.NS", "NTPC.NS", "AXISBANK.NS", "DMART.NS", "ADANIPORTS.NS",
+        "ULTRACEMCO.NS", "ASIANPAINT.NS", "COALINDIA.NS", "BAJAJFINSV.NS", "BAJAJ-AUTO.NS",
+        "POWERGRID.NS", "NESTLEIND.NS", "WIPRO.NS", "M&M.NS", "IOC.NS", "JIOFIN.NS", "HAL.NS",
+        "DLF.NS", "BEL.NS", "VBL.NS", "ZOMATO.NS", "JSWSTEEL.NS", "TATASTEEL.NS", "SIEMENS.NS",
+        "TRENT.NS", "PIDILITIND.NS", "GRASIM.NS", "SBILIFE.NS", "LTIM.NS", "TECHM.NS",
+        "HINDALCO.NS", "INDUSINDBK.NS", "BANKBARODA.NS", "PNB.NS", "IRFC.NS", "RVNL.NS",
+        "SUZLON.NS", "TATAPOWER.NS", "BHEL.NS"
+    ),
+    "🇺🇸 US Tech & S&P" to listOf(
+        "NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "TSLA", "BRK-B", "AVGO", "LLY",
+        "JPM", "V", "UNH", "XOM", "MA", "COST", "HD", "PG", "WMT", "JNJ",
+        "NFLX", "AMD", "CRM", "BAC", "ORCL", "ABBV", "MRK", "CVX", "KO", "PEP",
+        "ADBE", "CSCO", "TMO", "WFC", "INTC", "QCOM", "TXN", "IBM", "GE", "CAT",
+        "NOW", "INTU", "AMAT", "UBER", "DIS", "GS", "PLTR", "PANW", "CRWD", "SNOW",
+        "COIN", "ARM", "SMCI", "MU", "PYPL", "SHOP", "BA", "NKE", "SBUX", "SPOT"
+    ),
+    "🪙 Crypto" to listOf(
+        "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD", "DOGE-USD", "ADA-USD",
+        "TRX-USD", "AVAX-USD", "SHIB-USD", "LINK-USD", "DOT-USD", "BCH-USD", "NEAR-USD",
+        "LTC-USD", "ICP-USD", "ETC-USD", "ATOM-USD", "XLM-USD", "HBAR-USD",
+        "FIL-USD", "INJ-USD", "RNDR-USD", "AAVE-USD", "ALGO-USD", "VET-USD", "FTM-USD",
+        "PEPE24478-USD", "SUI20947-USD", "SEI-USD"
+    ),
+    "🌍 Global & Macro" to listOf(
+        "^GSPC", "^IXIC", "^DJI", "^RUT", "^VIX", "^FTSE", "^GDAXI", "^N225", "^HSI",
+        "GC=F", "SI=F", "CL=F", "NG=F", "HG=F", "PL=F", "SPY", "QQQ", "DIA",
+        "IWM", "VTI", "VOO", "SMH", "SOXX", "ARKK", "GLD", "TLT", "INR=X",
+        "EURUSD=X", "GBPUSD=X", "JPY=X"
+    )
+)
+
+val DISCOVERY_KEYWORDS = mapOf(
+    "🇮🇳 India (NSE)" to listOf("Tata .NS", "Adani .NS", "Bharat .NS", "Pharma .NS", "Bank .NS", "Infra .NS", "Power .NS", "Auto .NS"),
+    "🇺🇸 US Tech & S&P" to listOf("AI Semiconductor", "Cloud Software", "Biotech", "Aerospace Defense", "Cybersecurity", "Fintech", "Robotics", "Energy"),
+    "🪙 Crypto" to listOf("USD crypto", "DeFi USD", "Layer 1 USD", "Token USD"),
+    "🌍 Global & Macro" to listOf("ETF", "Index", "Vanguard ETF", "iShares ETF", "Commodity")
 )
 
 // --- MAIN ACTIVITY ---
@@ -138,6 +177,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         createStockNotificationChannel(this)
         scheduleDailyStockWorker(this)
+
+        val launchedSymbol = intent?.getStringExtra("target_symbol")
 
         setContent {
             MaterialTheme(
@@ -153,7 +194,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    ApexFinanceApp()
+                    ApexFinanceApp(initialSymbol = launchedSymbol)
                 }
             }
         }
@@ -163,10 +204,11 @@ class MainActivity : ComponentActivity() {
 // --- MAIN APP COMPOSABLE ---
 
 @Composable
-fun ApexFinanceApp() {
+fun ApexFinanceApp(initialSymbol: String? = null) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
+    val listState = rememberLazyListState()
     val prefs = remember { context.getSharedPreferences("apex_finance_prefs", Context.MODE_PRIVATE) }
 
     var watchlistSymbols by remember {
@@ -179,15 +221,27 @@ fun ApexFinanceApp() {
     var activeCategory by remember { mutableStateOf("Watchlist") }
     var quotesList by remember { mutableStateOf<List<AssetQuote>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    var isLoadingMore by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
+    var activeLoadJob by remember { mutableStateOf<Job?>(null) }
+
+    // Pagination & Infinite Discovery State
+    var nextPoolIndex by remember { mutableStateOf(0) }
+    var discoveryStep by remember { mutableStateOf(0) }
+    var canLoadMore by remember { mutableStateOf(true) }
+
+    // Filter & Sort State
+    var showFilterPanel by remember { mutableStateOf(false) }
+    var filterTab by remember { mutableStateOf("ALL") } // ALL, GAINERS, LOSERS, MOVERS, ALERTS
+    var sortBy by remember { mutableStateOf("FEED_ORDER") } // FEED_ORDER, GAINERS, LOSERS, PRICE_DESC, VOLUME
+    var selectedCurrencyFilter by remember { mutableStateOf("ALL") } // ALL, INR, USD
 
     // Search State
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<SearchTickerResult>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
 
-    // Selected Asset Detail View State
-    var selectedAssetSymbol by remember { mutableStateOf<String?>(null) }
+    var selectedAssetSymbol by remember { mutableStateOf(initialSymbol) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -223,36 +277,94 @@ fun ApexFinanceApp() {
         persistPriceAlerts(prefs, updated)
     }
 
-    fun refreshActiveList() {
-        val symbolsToLoad = if (activeCategory == "Watchlist") {
+    fun getCategorySymbolPool(): List<String> {
+        return if (activeCategory == "Watchlist") {
             watchlistSymbols.toList()
         } else {
             PRESET_CATEGORIES[activeCategory] ?: emptyList()
         }
+    }
 
-        if (symbolsToLoad.isEmpty()) {
+    // Loads initial page of 10 companies with instant rotating loading spinner
+    fun loadInitialCategoryFeed() {
+        activeLoadJob?.cancel()
+        val pool = getCategorySymbolPool()
+        if (pool.isEmpty()) {
             quotesList = emptyList()
             isLoading = false
+            canLoadMore = false
             return
         }
 
         isLoading = true
         errorMsg = null
-        scope.launch {
-            val loaded = fetchMultipleQuotes(symbolsToLoad)
-            quotesList = loaded
-            isLoading = false
+        nextPoolIndex = 0
+        discoveryStep = 0
+        val batchSize = 10
+        val firstBatch = pool.take(batchSize)
+        nextPoolIndex = firstBatch.size
+        canLoadMore = activeCategory != "Watchlist" || nextPoolIndex < pool.size
+
+        activeLoadJob = scope.launch {
+            val loaded = fetchMultipleQuotes(firstBatch)
             if (loaded.isEmpty()) {
                 errorMsg = "Could not load market data. Check connection and retry."
+            } else {
+                quotesList = loaded
+                errorMsg = null
             }
+            isLoading = false
         }
     }
 
-    LaunchedEffect(activeCategory, watchlistSymbols.size) {
-        refreshActiveList()
+    // Infinite Scroll: Loads next 10 companies from pool, OR discovers new companies via Yahoo Screener Search!
+    fun loadMoreCompanies() {
+        if (isLoading || isLoadingMore || !canLoadMore) return
+        isLoadingMore = true
+
+        scope.launch {
+            val pool = getCategorySymbolPool()
+            val batchSize = 10
+            val existingSymbols = quotesList.map { it.symbol.uppercase() }.toSet()
+
+            val nextSymbolsToFetch = if (nextPoolIndex < pool.size) {
+                val slice = pool.subList(nextPoolIndex, min(pool.size, nextPoolIndex + batchSize))
+                nextPoolIndex += slice.size
+                slice.filter { !existingSymbols.contains(it.uppercase()) }
+            } else if (activeCategory != "Watchlist") {
+                // Pool exhausted -> Discover more companies dynamically via Yahoo Finance Screener Search!
+                val keywords = DISCOVERY_KEYWORDS[activeCategory] ?: listOf("Stock")
+                val kw = keywords[discoveryStep % keywords.size]
+                discoveryStep++
+                val discovered = searchYahooTickers(kw).map { it.symbol }
+                    .filter { !existingSymbols.contains(it.uppercase()) }
+                discovered.take(batchSize)
+            } else {
+                canLoadMore = false
+                emptyList()
+            }
+
+            if (nextSymbolsToFetch.isNotEmpty()) {
+                val newQuotes = fetchMultipleQuotes(nextSymbolsToFetch)
+                if (newQuotes.isNotEmpty()) {
+                    val currentIds = quotesList.map { it.symbol }.toSet()
+                    val uniqueNew = newQuotes.filter { !currentIds.contains(it.symbol) }
+                    // Append directly to the bottom of quotesList!
+                    quotesList = quotesList + uniqueNew
+                }
+            } else if (activeCategory == "Watchlist" && nextPoolIndex >= pool.size) {
+                canLoadMore = false
+            }
+
+            isLoadingMore = false
+        }
     }
 
-    // Debounced live ticker search via Yahoo Finance Search API
+    LaunchedEffect(activeCategory) {
+        loadInitialCategoryFeed()
+    }
+
+    // Debounced live ticker search
     LaunchedEffect(searchQuery) {
         val q = searchQuery.trim()
         if (q.length < 2) {
@@ -260,7 +372,7 @@ fun ApexFinanceApp() {
             isSearching = false
         } else {
             isSearching = true
-            delay(400)
+            delay(380)
             if (searchQuery.trim() == q) {
                 searchResults = searchYahooTickers(q)
                 isSearching = false
@@ -280,56 +392,148 @@ fun ApexFinanceApp() {
         return
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            "Apex Finance & Stocks",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = Color(0xFF00E676)
-                        )
-                        Text(
-                            "Live Global Equities • NSE/BSE • Crypto • Daily Alerts",
-                            fontSize = 11.sp,
-                            color = Color.Gray
+    val activeFilterCount = listOf(
+        sortBy != "FEED_ORDER",
+        selectedCurrencyFilter != "ALL"
+    ).count { it }
+
+    // Step 1: Filter by Currency / Search Query -> Powers Dynamic Bracket Counts!
+    val baseFilteredList = remember(quotesList, selectedCurrencyFilter) {
+        quotesList.filter { q ->
+            when (selectedCurrencyFilter) {
+                "INR" -> q.currency.equals("INR", ignoreCase = true)
+                "USD" -> q.currency.equals("USD", ignoreCase = true)
+                else -> true
+            }
+        }
+    }
+
+    // Step 2: Apply Quick Filter Tab (All, Gainers, Losers, Big Movers, Alerts) + Sort Order
+    val displayedQuotes = remember(baseFilteredList, filterTab, sortBy, priceAlertsMap) {
+        val tabFiltered = baseFilteredList.filter { q ->
+            when (filterTab) {
+                "GAINERS" -> q.changePercent >= 0.0
+                "LOSERS" -> q.changePercent < 0.0
+                "MOVERS" -> abs(q.changePercent) >= 2.0
+                "ALERTS" -> priceAlertsMap.containsKey(q.symbol)
+                else -> true
+            }
+        }
+        when (sortBy) {
+            "GAINERS" -> tabFiltered.sortedByDescending { it.changePercent }
+            "LOSERS" -> tabFiltered.sortedBy { it.changePercent }
+            "PRICE_DESC" -> tabFiltered.sortedByDescending { it.price }
+            "VOLUME" -> tabFiltered.sortedByDescending { it.volume }
+            else -> tabFiltered // "FEED_ORDER" keeps strict bottom-append order so scrolling down always appends at bottom!
+        }
+    }
+
+    // Trigger infinite scroll when user scrolls near the bottom
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val totalItems = layoutInfo.totalItemsCount
+            val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            totalItems > 4 && lastVisible >= totalItems - 2
+        }
+    }
+
+    LaunchedEffect(shouldLoadMore) {
+        if (shouldLoadMore && !isLoading && !isLoadingMore && canLoadMore) {
+            loadMoreCompanies()
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0A0E14))
+            .statusBarsPadding()
+    ) {
+        // CUSTOM SINGLE-LINE RESPONSIVE HEADER BAR (NEVER CLIPS BEHIND STATUS BAR!)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF131924))
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Apex Finance & Stocks",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp,
+                    color = Color(0xFF00E676),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "180+ Stocks • Infinite Screener • NSE/BSE • US • Crypto",
+                    fontSize = 11.sp,
+                    color = Color.Gray,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = { showFilterPanel = !showFilterPanel },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    BadgedBox(
+                        badge = {
+                            if (activeFilterCount > 0) {
+                                Badge(containerColor = Color(0xFF00E676)) {
+                                    Text(activeFilterCount.toString(), color = Color.Black, fontSize = 10.sp)
+                                }
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = "Sort & Filter",
+                            tint = if (showFilterPanel || activeFilterCount > 0) Color(0xFF00E676) else Color.White
                         )
                     }
-                },
-                actions = {
-                    IconButton(onClick = {
+                }
+                IconButton(
+                    onClick = {
                         scope.launch {
-                            val topSummary = if (quotesList.isNotEmpty()) {
-                                quotesList.take(4).joinToString(" • ") { q ->
+                            val topQuote = displayedQuotes.firstOrNull()
+                            val topSummary = if (displayedQuotes.isNotEmpty()) {
+                                displayedQuotes.take(4).joinToString(" • ") { q ->
                                     val sign = if (q.changePercent >= 0) "+" else ""
                                     "${q.symbol}: ${formatCurrency(q.price, q.currency)} ($sign${"%.2f".format(q.changePercent)}%)"
                                 }
                             } else {
-                                "Tracking ${watchlistSymbols.size} watchlist assets for daily price updates."
+                                "Tracking ${watchlistSymbols.size} watchlist assets. Tap to open!"
                             }
                             sendStockNotification(
                                 context,
                                 "📈 Daily Watchlist Market Pulse",
-                                topSummary
+                                topSummary,
+                                targetSymbol = topQuote?.symbol
                             )
                         }
-                    }) {
-                        Icon(Icons.Default.Notifications, contentDescription = "Test Daily Alert")
-                    }
-                    IconButton(onClick = { refreshActiveList() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh Quotes")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF131924))
-            )
+                    },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(Icons.Default.Notifications, contentDescription = "Test Daily Alert", tint = Color.White)
+                }
+                IconButton(
+                    onClick = { loadInitialCategoryFeed() },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Refresh Quotes", tint = Color.White)
+                }
+            }
         }
-    ) { padding ->
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .padding(horizontal = 12.dp)
         ) {
             Spacer(modifier = Modifier.height(8.dp))
@@ -339,7 +543,7 @@ fun ApexFinanceApp() {
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
                 placeholder = {
-                    Text("Search stocks, NSE (.NS), crypto (NVDA, TCS, BTC)...", fontSize = 13.sp)
+                    Text("Search any company worldwide (NVDA, Tata, Infosys, BTC)...", fontSize = 13.sp)
                 },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 trailingIcon = {
@@ -360,7 +564,7 @@ fun ApexFinanceApp() {
                 shape = RoundedCornerShape(10.dp)
             )
 
-            // LIVE SEARCH DROPDOWN / RESULTS
+            // LIVE SEARCH DROPDOWN
             if (searchQuery.trim().length >= 2) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Card(
@@ -458,15 +662,89 @@ fun ApexFinanceApp() {
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            // 2. COLLAPSIBLE SORT & CURRENCY FILTER PANEL
+            AnimatedVisibility(visible = showFilterPanel) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF131924)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "SORT ORDER & CURRENCY FILTER",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = Color(0xFF00E676)
+                            )
+                            TextButton(
+                                onClick = {
+                                    sortBy = "FEED_ORDER"
+                                    selectedCurrencyFilter = "ALL"
+                                    filterTab = "ALL"
+                                },
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text("Reset All", fontSize = 11.sp, color = Color(0xFFFF5252))
+                            }
+                        }
 
-            // 2. MARKET CATEGORY TABS
+                        Text("Sort By:", fontSize = 11.sp, color = Color.Gray)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            val sorts = listOf(
+                                "FEED_ORDER" to "Feed Order (Bottom Append)",
+                                "GAINERS" to "Top Gainers (%)",
+                                "LOSERS" to "Top Losers (%)",
+                                "PRICE_DESC" to "Price (High → Low)",
+                                "VOLUME" to "Highest Volume"
+                            )
+                            items(sorts) { (code, label) ->
+                                FilterChip(
+                                    selected = sortBy == code,
+                                    onClick = { sortBy = code },
+                                    label = { Text(label, fontSize = 11.sp) }
+                                )
+                            }
+                        }
+
+                        Text("Currency:", fontSize = 11.sp, color = Color.Gray)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            val currs = listOf(
+                                "ALL" to "All Currencies (${quotesList.size})",
+                                "INR" to "INR ₹ (${quotesList.count { it.currency.equals("INR", true) }})",
+                                "USD" to "USD $ (${quotesList.count { it.currency.equals("USD", true) }})"
+                            )
+                            items(currs) { (code, label) ->
+                                FilterChip(
+                                    selected = selectedCurrencyFilter == code,
+                                    onClick = { selectedCurrencyFilter = code },
+                                    label = { Text(label, fontSize = 11.sp) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // 3. MARKET CATEGORY TABS
             val categories = listOf("Watchlist") + PRESET_CATEGORIES.keys.toList()
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(categories) { cat ->
                     FilterChip(
                         selected = activeCategory == cat,
-                        onClick = { activeCategory = cat },
+                        onClick = {
+                            if (activeCategory != cat) {
+                                activeCategory = cat
+                            }
+                        },
                         label = {
                             Text(
                                 if (cat == "Watchlist") "★ Watchlist (${watchlistSymbols.size})" else cat,
@@ -478,72 +756,133 @@ fun ApexFinanceApp() {
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            // 4. DYNAMIC FILTER CHIPS (All, Gainers, Losers, Big Movers ±2%+, Alerts)
+            val gainersCount = baseFilteredList.count { it.changePercent >= 0.0 }
+            val losersCount = baseFilteredList.count { it.changePercent < 0.0 }
+            val moversCount = baseFilteredList.count { abs(it.changePercent) >= 2.0 }
+            val alertsCount = baseFilteredList.count { priceAlertsMap.containsKey(it.symbol) }
 
-            // 3. MARKET SUMMARY HEADER BAR
-            if (!isLoading && quotesList.isNotEmpty()) {
-                val gainers = quotesList.count { it.changePercent >= 0 }
-                val losers = quotesList.size - gainers
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF131924))
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "$activeCategory Pulse: $gainers Advancing • $losers Declining",
-                        fontSize = 11.sp,
-                        color = Color(0xFFB0BEC5)
-                    )
-                    Text(
-                        "Tap any asset for Chart & RSI",
-                        fontSize = 11.sp,
-                        color = Color(0xFF00B0FF)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                item {
+                    FilterChip(
+                        selected = showFilterPanel || activeFilterCount > 0,
+                        onClick = { showFilterPanel = !showFilterPanel },
+                        label = {
+                            Text(
+                                if (activeFilterCount > 0) "⚙️ Sort/Filter ($activeFilterCount)" else "⚙️ Sort",
+                                fontSize = 11.sp,
+                                color = Color(0xFF00E676)
+                            )
+                        }
                     )
                 }
-                Spacer(modifier = Modifier.height(8.dp))
+                item {
+                    FilterChip(
+                        selected = filterTab == "ALL",
+                        onClick = { filterTab = "ALL" },
+                        label = { Text("All (${baseFilteredList.size})", fontSize = 11.sp) }
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = filterTab == "GAINERS",
+                        onClick = { filterTab = "GAINERS" },
+                        label = { Text("📈 Gainers ($gainersCount)", fontSize = 11.sp) }
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = filterTab == "LOSERS",
+                        onClick = { filterTab = "LOSERS" },
+                        label = { Text("📉 Losers ($losersCount)", fontSize = 11.sp) }
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = filterTab == "MOVERS",
+                        onClick = { filterTab = "MOVERS" },
+                        label = { Text("🔥 ±2% Movers ($moversCount)", fontSize = 11.sp) }
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = filterTab == "ALERTS",
+                        onClick = { filterTab = "ALERTS" },
+                        label = { Text("🔔 Alerts ($alertsCount)", fontSize = 11.sp) }
+                    )
+                }
             }
 
-            // 4. ASSET QUOTES FEED
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // 5. MAIN ASSET QUOTES FEED (SHOWS INSTANT ROTATING SPINNER WHEN SWITCHING TABS!)
             when {
                 isLoading -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator(color = Color(0xFF00E676))
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text("Fetching live market quotes & sparklines...", color = Color.Gray, fontSize = 13.sp)
+                            CircularProgressIndicator(
+                                color = Color(0xFF00E676),
+                                strokeWidth = 3.dp,
+                                modifier = Modifier.size(42.dp)
+                            )
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(
+                                "Loading $activeCategory Market Feed...",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                "Fetching live quotes & intraday sparklines...",
+                                color = Color.Gray,
+                                fontSize = 12.sp
+                            )
                         }
                     }
                 }
-                errorMsg != null -> {
+                errorMsg != null && displayedQuotes.isEmpty() -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(errorMsg!!, color = Color(0xFFFF5252), fontSize = 13.sp)
                             Spacer(modifier = Modifier.height(12.dp))
-                            Button(onClick = { refreshActiveList() }) {
+                            Button(onClick = { loadInitialCategoryFeed() }) {
                                 Text("Retry")
                             }
                         }
                     }
                 }
-                quotesList.isEmpty() -> {
+                displayedQuotes.isEmpty() -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            "Your Watchlist is empty. Use the search bar or switch tabs to star (★) assets!",
-                            color = Color.Gray,
-                            fontSize = 13.sp
-                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                if (filterTab != "ALL" || activeFilterCount > 0)
+                                    "No companies match the current filter."
+                                else
+                                    "Your Watchlist is empty. Star (★) any company to track it!",
+                                color = Color.Gray,
+                                fontSize = 13.sp
+                            )
+                            if (filterTab != "ALL" || activeFilterCount > 0) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                OutlinedButton(onClick = {
+                                    filterTab = "ALL"
+                                    selectedCurrencyFilter = "ALL"
+                                    sortBy = "FEED_ORDER"
+                                }) {
+                                    Text("Reset Filters")
+                                }
+                            }
+                        }
                     }
                 }
                 else -> {
                     LazyColumn(
+                        state = listState,
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(bottom = 24.dp)
+                        contentPadding = PaddingValues(bottom = 32.dp)
                     ) {
-                        items(quotesList, key = { it.symbol }) { quote ->
+                        items(displayedQuotes, key = { it.symbol }) { quote ->
                             AssetQuoteRowCard(
                                 quote = quote,
                                 isStarred = watchlistSymbols.contains(quote.symbol),
@@ -551,6 +890,50 @@ fun ApexFinanceApp() {
                                 onToggleStar = { toggleWatchlist(quote.symbol) },
                                 onClick = { selectedAssetSymbol = quote.symbol }
                             )
+                        }
+
+                        // Infinite Scroll Footer for Loading More Companies!
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 14.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                when {
+                                    isLoadingMore -> {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(18.dp),
+                                                strokeWidth = 2.dp,
+                                                color = Color(0xFF00E676)
+                                            )
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Text(
+                                                "Loading more companies (${quotesList.size} loaded)...",
+                                                fontSize = 12.sp,
+                                                color = Color(0xFF00E676)
+                                            )
+                                        }
+                                    }
+                                    canLoadMore -> {
+                                        OutlinedButton(onClick = { loadMoreCompanies() }) {
+                                            Text(
+                                                "Load More Companies (Showing ${displayedQuotes.size})",
+                                                fontSize = 12.sp,
+                                                color = Color(0xFF00E676)
+                                            )
+                                        }
+                                    }
+                                    else -> {
+                                        Text(
+                                            "All Watchlist assets loaded (${quotesList.size} total).",
+                                            fontSize = 12.sp,
+                                            color = Color.Gray
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -587,7 +970,6 @@ fun AssetQuoteRowCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // Left: Symbol + Name + Exchange
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.weight(1.3f)
@@ -631,14 +1013,13 @@ fun AssetQuoteRowCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "${quote.exchange} • ${quote.currency}",
+                        text = "${quote.exchange} • ${quote.currency} • Vol ${formatVolume(quote.volume)}",
                         fontSize = 10.sp,
                         color = Color(0xFF6E7681)
                     )
                 }
             }
 
-            // Middle: Mini Sparkline Canvas
             Box(
                 modifier = Modifier
                     .width(74.dp)
@@ -648,7 +1029,6 @@ fun AssetQuoteRowCard(
                 MiniSparkline(points = quote.sparkline, color = trendColor)
             }
 
-            // Right: Price & Daily % Change Badge
             Column(
                 horizontalAlignment = Alignment.End,
                 modifier = Modifier.weight(1f)
@@ -702,7 +1082,7 @@ fun MiniSparkline(points: List<Double>, color: Color) {
     }
 }
 
-// --- FULL INTERACTIVE ASSET DETAIL & CHART SCREEN ---
+// --- FULL INTERACTIVE ASSET DETAIL & CHART SCREEN (WITH SAFE STATUS BAR PADDING) ---
 
 @Composable
 fun AssetDetailScreen(
@@ -716,8 +1096,8 @@ fun AssetDetailScreen(
     BackHandler { onBack() }
 
     val context = LocalContext.current
-    var selectedRange by remember { mutableStateOf("1D") } // 1D, 5D, 1M, 6M, 1Y, 5Y
-    var chartMode by remember { mutableStateOf("AREA") } // AREA or CANDLE
+    var selectedRange by remember { mutableStateOf("1D") }
+    var chartMode by remember { mutableStateOf("AREA") }
     var showSma20 by remember { mutableStateOf(true) }
 
     var quote by remember { mutableStateOf<AssetQuote?>(null) }
@@ -725,10 +1105,8 @@ fun AssetDetailScreen(
     var newsList by remember { mutableStateOf<List<NewsArticle>>(emptyList()) }
     var isLoadingChart by remember { mutableStateOf(true) }
 
-    // Touch-scrubbing state on the chart
     var scrubbedCandle by remember { mutableStateOf<CandlePoint?>(null) }
 
-    // Price Alert Dialog state
     var showAlertDialog by remember { mutableStateOf(false) }
     var alertInputText by remember { mutableStateOf(currentAlertTarget?.toString() ?: "") }
 
@@ -794,65 +1172,77 @@ fun AssetDetailScreen(
         )
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                title = {
-                    Column {
-                        Text(
-                            text = symbol,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                        Text(
-                            text = quote?.name ?: "Loading asset...",
-                            fontSize = 12.sp,
-                            color = Color.Gray,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = {
-                        alertInputText = currentAlertTarget?.toString() ?: (quote?.price?.toString() ?: "")
-                        showAlertDialog = true
-                    }) {
-                        Icon(
-                            imageVector = if (currentAlertTarget != null) Icons.Default.NotificationsActive else Icons.Default.AddAlert,
-                            contentDescription = "Set Price Alert",
-                            tint = if (currentAlertTarget != null) Color(0xFF00B0FF) else Color.White
-                        )
-                    }
-                    IconButton(onClick = onToggleWatchlist) {
-                        Icon(
-                            imageVector = if (isInWatchlist) Icons.Default.Star else Icons.Default.StarBorder,
-                            contentDescription = "Watchlist",
-                            tint = if (isInWatchlist) Color(0xFFFFD600) else Color.White
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF131924))
-            )
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0A0E14))
+            .statusBarsPadding()
+    ) {
+        // CUSTOM RESPONSIVE HEADER BAR (NEVER CLIPS BEHIND STATUS BAR)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF131924))
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                }
+                Column {
+                    Text(
+                        text = symbol,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = Color.White,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = quote?.name ?: "Loading asset...",
+                        fontSize = 11.sp,
+                        color = Color.Gray,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = {
+                    alertInputText = currentAlertTarget?.toString() ?: (quote?.price?.toString() ?: "")
+                    showAlertDialog = true
+                }) {
+                    Icon(
+                        imageVector = if (currentAlertTarget != null) Icons.Default.NotificationsActive else Icons.Default.AddAlert,
+                        contentDescription = "Set Price Alert",
+                        tint = if (currentAlertTarget != null) Color(0xFF00B0FF) else Color.White
+                    )
+                }
+                IconButton(onClick = onToggleWatchlist) {
+                    Icon(
+                        imageVector = if (isInWatchlist) Icons.Default.Star else Icons.Default.StarBorder,
+                        contentDescription = "Watchlist",
+                        tint = if (isInWatchlist) Color(0xFFFFD600) else Color.White
+                    )
+                }
+            }
         }
-    ) { padding ->
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .padding(horizontal = 14.dp),
             contentPadding = PaddingValues(bottom = 32.dp)
         ) {
             item {
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // 1. LIVE PRICE HEADER (Updates dynamically when scrubbing the chart!)
                 val q = quote
                 val activePrice = scrubbedCandle?.close ?: q?.price ?: 0.0
                 val baselinePrice = if (selectedRange == "1D") {
@@ -918,7 +1308,6 @@ fun AssetDetailScreen(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // 2. CHART MODE & OVERLAY CONTROLS (Area vs Candlesticks + SMA-20)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -945,7 +1334,6 @@ fun AssetDetailScreen(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // 3. INTERACTIVE TOUCH-SCRUBBING CANVAS CHART
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -982,7 +1370,6 @@ fun AssetDetailScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // 4. TIMEFRAME SELECTOR BUTTONS (1D, 5D, 1M, 6M, 1Y, 5Y)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly
@@ -1008,7 +1395,6 @@ fun AssetDetailScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // 5. TECHNICAL INDICATORS & SIGNAL SUMMARY (RSI-14, SMA-20, 52W Range)
                 if (q != null && candles.size >= 5) {
                     val closes = candles.map { it.close }
                     val rsi14 = calculateRsi14(closes)
@@ -1041,7 +1427,6 @@ fun AssetDetailScreen(
                             )
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            // 52-Week Range Visual Progress Bar
                             if (q.high52W > q.low52W && q.low52W > 0) {
                                 val pos = ((q.price - q.low52W) / (q.high52W - q.low52W))
                                     .toFloat()
@@ -1087,9 +1472,47 @@ fun AssetDetailScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // 6. LIVE FINANCIAL NEWS FOR THIS ASSET
+                // 1-TAP DEEP FINANCIAL RESEARCH & FUNDAMENTALS PORTALS
+                Text(
+                    "🔬 DEEP FINANCIAL RESEARCH & FUNDAMENTALS PORTALS",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    color = Color(0xFFE040FB)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                val cleanTicker = symbol.removeSuffix(".NS").removeSuffix(".BO")
+                val isIndianStock = symbol.endsWith(".NS") || symbol.endsWith(".BO")
+                val researchLinks = mutableListOf(
+                    "Yahoo Full Financials" to "https://finance.yahoo.com/quote/${URLEncoder.encode(symbol, "UTF-8")}",
+                    "TradingView Chart" to "https://www.tradingview.com/symbols/${URLEncoder.encode(cleanTicker, "UTF-8")}/"
+                ).apply {
+                    if (isIndianStock) {
+                        add("Screener.in Fundamentals" to "https://www.screener.in/company/${URLEncoder.encode(cleanTicker, "UTF-8")}/")
+                        add("NSE India Quote" to "https://www.nseindia.com/get-quotes/equity?symbol=${URLEncoder.encode(cleanTicker, "UTF-8")}")
+                    } else if (!symbol.contains("-") && !symbol.startsWith("^")) {
+                        add("Finviz Fundamentals" to "https://finviz.com/quote.ashx?t=${URLEncoder.encode(cleanTicker, "UTF-8")}")
+                    }
+                    add("Google Finance & Earnings" to "https://www.google.com/finance?q=${URLEncoder.encode(cleanTicker, "UTF-8")}")
+                }
+
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(researchLinks) { (label, url) ->
+                        OutlinedButton(
+                            onClick = {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(label, fontSize = 11.sp, color = Color(0xFF00B0FF))
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
                 Text(
                     "LATEST NEWS & MARKET ANALYSIS FOR $symbol",
                     fontWeight = FontWeight.Bold,
@@ -1193,7 +1616,6 @@ fun InteractiveFinancialChart(
             return size.height - (((p - minPrice) / range).toFloat() * size.height)
         }
 
-        // Draw subtle horizontal grid lines
         for (i in 1..3) {
             val y = size.height * (i / 4f)
             drawLine(
@@ -1212,7 +1634,6 @@ fun InteractiveFinancialChart(
                 val xCenter = (i + 0.5f) * candleStep
                 val cColor = if (c.close >= c.open) Color(0xFF00E676) else Color(0xFFFF1744)
 
-                // High-Low Wick
                 drawLine(
                     color = cColor,
                     start = Offset(xCenter, priceToY(c.high)),
@@ -1220,7 +1641,6 @@ fun InteractiveFinancialChart(
                     strokeWidth = 1.2.dp.toPx()
                 )
 
-                // Open-Close Body
                 val topY = priceToY(max(c.open, c.close))
                 val botY = priceToY(min(c.open, c.close))
                 val bodyHeight = abs(botY - topY).coerceAtLeast(2f)
@@ -1231,7 +1651,6 @@ fun InteractiveFinancialChart(
                 )
             }
         } else {
-            // Smooth Area + Line Chart
             val linePath = Path()
             val fillPath = Path()
 
@@ -1263,7 +1682,6 @@ fun InteractiveFinancialChart(
             )
         }
 
-        // Optional 20-Period Simple Moving Average (SMA-20) Overlay
         if (showSma20 && candles.size >= 5) {
             val smaPath = Path()
             candles.forEachIndexed { i, _ ->
@@ -1280,7 +1698,6 @@ fun InteractiveFinancialChart(
             )
         }
 
-        // Draw Touch-Scrubbing Crosshair if user is touching the chart
         if (scrubbedCandle != null) {
             val idx = candles.indexOf(scrubbedCandle)
             if (idx >= 0) {
@@ -1439,7 +1856,7 @@ suspend fun searchYahooTickers(query: String): List<SearchTickerResult> {
         val list = mutableListOf<SearchTickerResult>()
         try {
             val encoded = URLEncoder.encode(query, "UTF-8")
-            val url = "https://query2.finance.yahoo.com/v1/finance/search?q=$encoded&quotesCount=10&newsCount=0"
+            val url = "https://query2.finance.yahoo.com/v1/finance/search?q=$encoded&quotesCount=14&newsCount=0"
             val json = httpGetBrowser(url)
             val quotes = JSONObject(json).optJSONArray("quotes") ?: JSONArray()
             for (i in 0 until quotes.length()) {
@@ -1488,8 +1905,8 @@ fun httpGetBrowser(urlStr: String): String {
             "User-Agent",
             "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
         )
-        connectTimeout = 10000
-        readTimeout = 10000
+        connectTimeout = 12000
+        readTimeout = 12000
     }
     return conn.inputStream.bufferedReader().use { it.readText() }
 }
@@ -1568,7 +1985,6 @@ class StockUpdateWorker(appContext: Context, workerParams: WorkerParameters) :
 
                 val quotes = fetchMultipleQuotes(watchlist.take(6))
                 if (quotes.isNotEmpty()) {
-                    // 1. Check if any custom price alerts were triggered
                     quotes.forEach { q ->
                         val target = alerts[q.symbol]
                         if (target != null && target > 0.0) {
@@ -1578,13 +1994,13 @@ class StockUpdateWorker(appContext: Context, workerParams: WorkerParameters) :
                                 sendStockNotification(
                                     applicationContext,
                                     "🎯 Price Alert Triggered: ${q.symbol}",
-                                    "${q.symbol} is now at ${formatCurrency(q.price, q.currency)} (Target: ${formatCurrency(target, q.currency)})"
+                                    "${q.symbol} is now at ${formatCurrency(q.price, q.currency)} (Target: ${formatCurrency(target, q.currency)}). Tap to view chart!",
+                                    targetSymbol = q.symbol
                                 )
                             }
                         }
                     }
 
-                    // 2. Send Daily Watchlist Market Pulse Summary
                     val summaryLine = quotes.take(4).joinToString(" • ") { q ->
                         val sign = if (q.changePercent >= 0) "+" else ""
                         "${q.symbol}: ${formatCurrency(q.price, q.currency)} ($sign${"%.2f".format(q.changePercent)}%)"
@@ -1592,7 +2008,8 @@ class StockUpdateWorker(appContext: Context, workerParams: WorkerParameters) :
                     sendStockNotification(
                         applicationContext,
                         "📊 Daily Watchlist Price Update",
-                        summaryLine
+                        summaryLine,
+                        targetSymbol = null
                     )
                 }
                 Result.success()
@@ -1633,7 +2050,25 @@ fun createStockNotificationChannel(context: Context) {
     }
 }
 
-fun sendStockNotification(context: Context, title: String, message: String) {
+fun sendStockNotification(
+    context: Context,
+    title: String,
+    message: String,
+    targetSymbol: String? = null
+) {
+    val launchIntent = Intent(context, MainActivity::class.java).apply {
+        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        if (!targetSymbol.isNullOrBlank()) {
+            putExtra("target_symbol", targetSymbol)
+        }
+    }
+    val pendingIntent = PendingIntent.getActivity(
+        context,
+        title.hashCode(),
+        launchIntent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     val notification = NotificationCompat.Builder(context, "stock_alerts")
         .setSmallIcon(android.R.drawable.ic_dialog_info)
@@ -1641,6 +2076,7 @@ fun sendStockNotification(context: Context, title: String, message: String) {
         .setContentText(message)
         .setStyle(NotificationCompat.BigTextStyle().bigText(message))
         .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .setContentIntent(pendingIntent)
         .setAutoCancel(true)
         .build()
     manager.notify(System.currentTimeMillis().toInt(), notification)
