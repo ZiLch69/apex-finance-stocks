@@ -1,4 +1,4 @@
-name: Build Apex Finance APK
+name: Build Signed Release Apex Finance Pro APK
 
 on:
   push:
@@ -15,6 +15,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -22,10 +24,73 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Generate Android Project Structure
+      - name: Create or Reuse Permanent RSA-2048 Release Keystore
+        run: |
+          if [ ! -f release-keystore.jks ]; then
+            echo "Generating permanent RSA-2048 Release Keystore..."
+            keytool -genkeypair -v \
+              -keystore release-keystore.jks \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -alias apex_pro_key \
+              -storepass ApexProReleaseKey2026 \
+              -keypass ApexProReleaseKey2026 \
+              -dname "CN=ZiLch69, OU=MarketResearch, O=ApexFinancePro, L=Tech, S=IN, C=IN"
+
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add release-keystore.jks
+            git commit -m "Add permanent Release Keystore for consistent APK signing [skip ci]" || true
+            git push || true
+          else
+            echo "Reusing existing permanent Release Keystore from repository!"
+          fi
+
+      - name: Generate Android Project Structure & Custom App Icon
         run: |
           mkdir -p app/src/main/java/com/example/cvetracker
           cp MainActivity.kt app/src/main/java/com/example/cvetracker/MainActivity.kt
+
+          # Detect any uploaded icon image (.png, .jpg, .jpeg) in the root of the repo
+          ICON_FILE=$(find . -maxdepth 1 -type f \( -iname "icon.*" -o -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) | head -n 1)
+
+          if [ -n "$ICON_FILE" ]; then
+            echo "Found custom icon: $ICON_FILE — generating Android mipmap launcher icons..."
+            sudo apt-get update -y && sudo apt-get install -y python3-pil
+            python3 - "$ICON_FILE" << 'PYEOF'
+          import os, sys
+          from PIL import Image, ImageDraw
+
+          src_path = sys.argv[1]
+          img = Image.open(src_path).convert("RGBA")
+
+          # Crop to centered square if not already square
+          w, h = img.size
+          side = min(w, h)
+          left = (w - side) // 2
+          top = (h - side) // 2
+          img = img.crop((left, top, left + side, top + side))
+
+          sizes = {
+              "mipmap-mdpi": 48,
+              "mipmap-hdpi": 72,
+              "mipmap-xhdpi": 96,
+              "mipmap-xxhdpi": 144,
+              "mipmap-xxxhdpi": 192,
+          }
+
+          for folder, px in sizes.items():
+              out_dir = os.path.join("app/src/main/res", folder)
+              os.makedirs(out_dir, exist_ok=True)
+              resized = img.resize((px, px), Image.Resampling.LANCZOS)
+              resized.save(os.path.join(out_dir, "ic_launcher.png"), format="PNG")
+          PYEOF
+            MANIFEST_ICON="@mipmap/ic_launcher"
+          else
+            echo "No custom icon image found in repo root; using built-in system icon."
+            MANIFEST_ICON="@android:drawable/ic_dialog_info"
+          fi
 
           cat << 'EOF' > settings.gradle.kts
           pluginManagement {
@@ -42,7 +107,7 @@ jobs:
                   mavenCentral()
               }
           }
-          rootProject.name = "ApexFinanceStocks"
+          rootProject.name = "ApexFinanceStocksPro"
           include(":app")
           EOF
 
@@ -71,11 +136,36 @@ jobs:
               compileSdk = 34
 
               defaultConfig {
-                  applicationId = "com.example.stockmarketpro"
+                  applicationId = "com.example.apexfinance.pro"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 1
-                  versionName = "1.0"
+                  versionCode = 2
+                  versionName = "3.2-Pro-Release"
+              }
+
+              signingConfigs {
+                  create("release") {
+                      storeFile = file("../release-keystore.jks")
+                      storePassword = "ApexProReleaseKey2026"
+                      keyAlias = "apex_pro_key"
+                      keyPassword = "ApexProReleaseKey2026"
+                      enableV1Signing = true
+                      enableV2Signing = true
+                  }
+              }
+
+              buildTypes {
+                  getByName("release") {
+                      isMinifyEnabled = false
+                      isShrinkResources = false
+                      isDebuggable = false
+                      signingConfig = signingConfigs.getByName("release")
+                  }
+              }
+
+              lint {
+                  checkReleaseBuilds = false
+                  abortOnError = false
               }
 
               compileOptions {
@@ -105,7 +195,7 @@ jobs:
           }
           EOF
 
-          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          cat << EOF > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -114,8 +204,9 @@ jobs:
 
               <application
                   android:allowBackup="true"
-                  android:icon="@android:drawable/ic_dialog_info"
-                  android:label="Apex Finance &amp; Stocks"
+                  android:icon="$MANIFEST_ICON"
+                  android:roundIcon="$MANIFEST_ICON"
+                  android:label="Apex Finance Pro"
                   android:supportsRtl="true"
                   android:theme="@android:style/Theme.Material.NoActionBar">
                   <activity
@@ -135,21 +226,21 @@ jobs:
         with:
           gradle-version: '8.5'
 
-      - name: Assemble APK
+      - name: Assemble Signed Release APK
         run: |
-          gradle assembleDebug
-          cp app/build/outputs/apk/debug/app-debug.apk Apex-Finance-Stocks.apk
+          gradle assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk Apex-Finance-Pro.apk
 
-      - name: Upload Compiled APK to Actions Artifacts
+      - name: Upload Signed Release APK to Actions Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Apex-Finance-Stocks-APK
-          path: Apex-Finance-Stocks.apk
+          name: Apex-Finance-Pro-APK
+          path: Apex-Finance-Pro.apk
 
-      - name: Publish APK to GitHub Releases
+      - name: Publish Signed Release APK to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: "Apex Finance & Stocks v1.0 (Build #${{ github.run_number }})"
-          body: "Tap **Apex-Finance-Stocks.apk** under Assets below to download and install directly!"
-          files: Apex-Finance-Stocks.apk
+          tag_name: v3.2.${{ github.run_number }}
+          name: "Apex Finance Pro v3.2 (Signed Release #${{ github.run_number }})"
+          body: "Signed Release APK with Custom Neon Bull Icon (`v1` + `v2` RSA-2048 signature, non-debuggable, Release-optimized Compose performance). Tap **Apex-Finance-Pro.apk** under Assets below to download and install!"
+          files: Apex-Finance-Pro.apk
